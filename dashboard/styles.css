@@ -310,6 +310,153 @@ button { transition:background .2s var(--spring),transform .2s var(--spring); }b
 @media(max-width:1100px) { .st-key-sources_page .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px) { .st-key-sources_page .metric-grid { grid-template-columns:1fr 1fr; }.st-key-sources_page .metric-note { white-space:normal; }.st-key-sources_page .source-summary { margin-bottom:8px; } }
 
+/* Keep Streamlit/BaseWeb form controls light even when the browser or OS uses dark mode. */
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
+  color-scheme: light !important;
+}
+div[data-baseweb="select"],
+div[data-baseweb="input"],
+[data-testid="stTextInput"],
+[data-testid="stTextInput"] > div {
+  color-scheme: light !important;
+  background:#fff !important;
+  color:#132c63 !important;
+}
+/* Streamlit 1.4x uses React Aria markup for select and multiselect widgets. */
+[data-testid="stMultiSelect"],
+[data-testid="stMultiSelectTagsContainer"],
+[data-testid="stMultiSelectTagsContainer"] + input,
+.react-aria-ComboBox,
+.react-aria-ComboBox [role="group"],
+input[role="combobox"],
+[data-testid="stTextInput"] input {
+  color-scheme: light !important;
+  background:#fff !important;
+  color:#132c63 !important;
+}
+[data-testid="stMultiSelectTagsContainer"] [data-tag],
+[data-testid="stMultiSelectTagsContainer"] [data-tag] span,
+[data-testid="stMultiSelectTagsContainer"] [data-tag] button {
+  color:#244a78 !important;
+}
+[data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  background:#e8f2fb !important;
+  border-color:#c9dced !important;
+}
+[data-testid="stMultiSelect"] input[role="combobox"] {
+  background:#fff !important;
+  color:#132c63 !important;
+  -webkit-text-fill-color:#132c63 !important;
+  caret-color:#1262e8 !important;
+}
+[data-testid="stMultiSelect"]:focus-within [data-testid="stMultiSelectTagsContainer"],
+[data-testid="stMultiSelect"]:hover [data-testid="stMultiSelectTagsContainer"] {
+  background:#fff !important;
+  border-color:#8db8e6 !important;
+}
+[data-testid="stTextInput"] input {
+  border-color:#c9dced !important;
+}
+[data-testid="stTextInput"]:focus-within input {
+  border-color:#347fd7 !important;
+  box-shadow:0 0 0 3px #347fd726 !important;
+}
+[data-testid="stMultiSelect"] svg,
+[data-testid="stTextInput"] svg {
+  color:#607797 !important;
+  fill:#607797 !important;
+  stroke:#607797 !important;
+}
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div,
+[data-testid="stTextInput"] input {
+  background:#fff !important;
+  color:#132c63 !important;
+  border-color:#c9dced !important;
+}
+div[data-baseweb="select"] input,
+div[data-baseweb="input"] input,
+[data-testid="stTextInput"] input,
+[data-testid="stTextInput"] textarea {
+  background:#fff !important;
+  color:#132c63 !important;
+  caret-color:#1262e8 !important;
+  -webkit-text-fill-color:#132c63 !important;
+}
+div[data-baseweb="select"] input::placeholder,
+div[data-baseweb="input"] input::placeholder,
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextInput"] textarea::placeholder {
+  color:#7890b1 !important;
+  -webkit-text-fill-color:#7890b1 !important;
+  opacity:1 !important;
+}
+div[data-baseweb="select"]:hover > div,
+div[data-baseweb="input"]:hover > div,
+[data-testid="stTextInput"]:hover > div {
+  background:#fff !important;
+  border-color:#8db8e6 !important;
+}
+div[data-baseweb="select"]:focus-within > div,
+div[data-baseweb="input"]:focus-within > div,
+[data-testid="stTextInput"]:focus-within > div {
+  background:#fff !important;
+  border-color:#347fd7 !important;
+  box-shadow:0 0 0 3px #347fd726 !important;
+}
+div[data-baseweb="select"] svg,
+div[data-baseweb="input"] svg,
+[data-testid="stTextInput"] svg {
+  color:#607797 !important;
+  fill:#607797 !important;
+  stroke:#607797 !important;
+}
+div[data-baseweb="tag"] {
+  color:#244a78 !important;
+  background:#e8f2fb !important;
+  border-color:#c9dced !important;
+}
+div[data-baseweb="tag"] span,
+div[data-baseweb="tag"] [role="button"] {
+  color:#244a78 !important;
+}
+div[data-baseweb="tag"] svg {
+  color:#607797 !important;
+  fill:#607797 !important;
+  stroke:#607797 !important;
+}
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+div[data-baseweb="menu"],
+div[data-baseweb="menu"] > div,
+[role="listbox"] {
+  color-scheme:light !important;
+  background:#fff !important;
+  color:#132c63 !important;
+  border-color:#d5e3f1 !important;
+}
+div[data-baseweb="menu"] ul,
+[role="listbox"] {
+  background:#fff !important;
+}
+div[data-baseweb="menu"] li,
+[role="option"] {
+  background:#fff !important;
+  color:#132c63 !important;
+}
+div[data-baseweb="menu"] li:hover,
+div[data-baseweb="menu"] li[aria-selected="true"],
+[role="option"]:hover,
+[role="option"][aria-selected="true"] {
+  background:#eef6ff !important;
+  color:#0e5ebc !important;
+}
+div[data-baseweb="menu"] li[aria-disabled="true"],
+[role="option"][aria-disabled="true"] {
+  color:#8b9bb3 !important;
+  background:#fff !important;
+}
+
 /* Overview follows the supplied banking reference. The page marker deliberately
    scopes the workspace and sidebar so the four other routes retain their UI. */
 body:has(.st-key-overview_page) {
@@ -560,6 +707,10 @@ body:has(.st-key-comparison_page) [data-testid="stMainBlockContainer"] { max-wid
   background:#e5f0f5;
   border:1px solid color-mix(in srgb,var(--tag-color,#5c8cc2) 22%,white);
 }
+.st-key-comparison_page .st-key-panel_comparison_filter [data-testid="stMultiSelectTagsContainer"] [data-tag] {
+  display:inline-flex; align-items:center; gap:6px; min-height:34px; height:auto;
+  padding:4px 8px; border-radius:8px; background:#fff !important;
+}
 .st-key-comparison_page .bank-mini-grid { gap:9px; margin-bottom:0; }
 .st-key-comparison_page .bank-mini {
   position:relative; min-height:118px; padding:13px 13px 11px; overflow:hidden;
@@ -591,6 +742,26 @@ body:has(.st-key-comparison_page) [data-testid="stMainBlockContainer"] { max-wid
 .st-key-comparison_page :is(.st-key-panel_comparison_groups,.st-key-panel_comparison_totals) { min-height:326px; }
 .st-key-comparison_page .st-key-panel_comparison_groups { background:linear-gradient(135deg,#f7fcff,#ecf7ff); }
 .st-key-comparison_page .st-key-panel_comparison_totals { background:linear-gradient(135deg,#fffdf8,#f3f8ff); }
+:is(.st-key-comparison_totals_chart,.st-key-overview_totals_chart) [data-testid="stHorizontalBlock"] {
+  flex-wrap:nowrap; gap:0;
+}
+:is(.st-key-comparison_totals_chart,.st-key-overview_totals_chart) [data-testid="stColumn"]:first-child {
+  flex:0 0 26px; min-width:26px;
+}
+:is(.st-key-comparison_totals_chart,.st-key-overview_totals_chart) [data-testid="stColumn"]:last-child {
+  flex:1 1 0; min-width:0;
+}
+:is(.st-key-comparison_page,.st-key-overview_page) .bank-logo-axis {
+  display:grid; grid-template-rows:repeat(var(--count),minmax(0,1fr));
+  height:var(--axis-height); box-sizing:border-box;
+  padding-top:var(--axis-top); padding-bottom:var(--axis-bottom);
+}
+:is(.st-key-comparison_page,.st-key-overview_page) .bank-logo-axis-row {
+  display:flex; align-items:center; justify-content:center; min-height:0;
+}
+:is(.st-key-comparison_page,.st-key-overview_page) .bank-logo-axis .bank-logo-fallback {
+  width:22px; height:22px; margin:0;
+}
 .st-key-comparison_page .st-key-panel_comparison_matrix {
   padding:16px 15px 14px;
   background:linear-gradient(145deg,#ffffff,#f1f8ff);
@@ -692,11 +863,41 @@ body:has(.st-key-comparison_page) [data-testid="stMainBlockContainer"] { max-wid
 .bank-logo {
   display:inline-block;
   object-fit:contain;
+  object-position:center;
   flex:0 0 auto;
 }
-.bank-logo-normal { width:30px; height:30px; border-radius:10px; }
-.bank-logo-small { width:22px; height:22px; border-radius:7px; }
-.bank-logo-fallback.bank-logo-small {
+[data-testid="stMarkdownContainer"] img.bank-logo {
+  object-fit:contain;
+  object-position:center;
+}
+.bank-logo-md { width:30px; height:30px; }
+.bank-logo-sm { width:22px; height:22px; }
+.bank-logo-lg { width:38px; height:38px; }
+.ranking-bank-identity { display:inline-flex; align-items:center; gap:10px; vertical-align:middle; }
+.bank-identity-strip {
+  display:flex; flex-wrap:wrap; align-items:center; gap:7px 14px;
+  padding:5px 0 2px; color:#25446e; color-scheme:light;
+}
+.bank-identity {
+  display:inline-flex; flex:0 0 auto; align-items:center; gap:5px;
+  font-size:10px; font-weight:650; line-height:1.4; white-space:nowrap;
+}
+.bank-identity-strip-compact {
+  display:grid; grid-template-columns:repeat(var(--count),minmax(0,1fr)); gap:2px;
+  padding:2px 0 5px;
+}
+.bank-identity-strip-compact .bank-identity { flex-direction:column; gap:2px; font-size:9px; }
+.insight-bank-logos { display:flex; flex:0 0 auto; flex-wrap:wrap; gap:3px; max-width:50px; }
+.st-key-overview_page .insight strong { overflow-wrap:anywhere; }
+.st-key-comparison_page .bank-mini-title .bank-logo-md { width:32px; height:32px; }
+.st-key-comparison_page .bank-mini-title > div { flex:1; }
+.st-key-comparison_page .bank-mini-title { flex-wrap:wrap; }
+.st-key-comparison_page .bank-mini-title > em { margin-left:0; }
+.st-key-comparison_page .st-key-panel_comparison_filter .bank-identity {
+  padding:3px 8px 3px 5px; background:#fff; border:1px solid #dae7f4; border-radius:6px;
+}
+.bank-logo,.bank-logo-fallback { vertical-align:middle; }
+.bank-logo-fallback.bank-logo-sm {
   width:22px;
   height:22px;
   border-radius:7px;
@@ -729,7 +930,7 @@ body:has(.st-key-comparison_page) [data-testid="stMainBlockContainer"] { max-wid
   box-shadow:inset 0 1px 0 #fff,0 4px 10px #2863a40d;
 }
 .st-key-comparison_page .analysis-row .rank-number { width:22px; height:22px; color:var(--bank); }
-.st-key-comparison_page .analysis-row .bank-logo-normal {
+.st-key-comparison_page .analysis-row .bank-logo-md {
   width:27px;
   height:27px;
 }

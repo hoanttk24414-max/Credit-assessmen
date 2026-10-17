@@ -17,7 +17,8 @@ from config import (
 )
 
 st.set_page_config(page_title="BCDS 2025 · Phân tích ngân hàng", page_icon="▥", layout="wide", initial_sidebar_state="expanded")
-ui.html("<style>" + Path(__file__).with_name("styles.css").read_text(encoding="utf-8") + "</style>")
+ui.html("<style>" + Path(__file__).with_name("styles.css").read_text(encoding="utf-8")
+        + ui.bank_selector_logo_css() + "</style>")
 
 LABELS = {
     "bank": "Ngân hàng", "ticker": "Mã", "year": "Năm", "rank": "Hạng",
@@ -44,7 +45,12 @@ def load(loader, **kwargs):
 
 
 def plot(figure, key):
-    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False, "responsive": True}, key=key)
+    st.plotly_chart(
+        figure,
+        width="stretch",
+        config={"displayModeBar": False, "responsive": True},
+        key=key,
+    )
 
 
 def remember_bank(widget_key):
@@ -86,7 +92,7 @@ def criterion_units(definitions):
 
 
 def overview():
-    ui.page_header(f"Đánh giá chuyển đổi số ngân hàng Việt Nam {YEAR}",
+    ui.page_header("Chấm điểm tín dụng ngân hàng tích hợp chuyển đổi số",
                    "Mô hình 12 tiêu chí định lượng + 3 tiêu chí định tính", PAGES[0], overview=True)
     ranking = load(data.load_ranking)
     criteria = load(data.load_criterion_scores)
@@ -110,11 +116,14 @@ def overview():
             ui.ranking_table(ranking)
         with right, ui.panel("overview_bar"):
             ui.section_header("Điểm tổng hợp ngân hàng", "So sánh trên thang 0–100", "bars")
-            chart, context = st.columns([3, 1], gap="small")
-            with chart:
-                plot(charts.ranking_bar(ranking, 202, overview=True), "overview_ranking")
-            with context:
-                ui.ranking_context(ranking)
+            figure = charts.logo_ranking_bar(ranking, 220, overview=True)
+            with st.container(key="overview_totals_chart"):
+                logo_column, chart_column = st.columns([1, 14], gap=None)
+                with logo_column:
+                    ui.bank_logo_axis(figure.data[0].y, height=figure.layout.height,
+                                      top=figure.layout.margin.t, bottom=figure.layout.margin.b)
+                with chart_column:
+                    plot(figure, "overview_ranking")
     groups = load(data.load_group_scores)
     if groups is not None:
         with ui.panel("overview_groups"):
@@ -129,6 +138,7 @@ def overview():
                         continue
                     ui.section_header(part.group_label.iloc[0], symbol=("shield", "coins", "bars", "screen")[index], tone=("blue", "gold", "violet", "blue")[index])
                     plot(charts.group_mini(part, tickers), "overview_group_" + group)
+                    ui.bank_identity_strip(tickers, compact=True)
         with ui.panel("overview_insights"):
             ui.section_header("Nhận định nổi bật", "Dựa trên kết quả dữ liệu hiện tại", "bulb", "gold")
             ui.insight_cards(group_order(groups))
@@ -158,7 +168,14 @@ def comparison():
             plot(charts.group_comparison(selected_groups, chosen.ticker.tolist()), "compare_groups")
     with right, ui.panel("comparison_totals"):
         ui.section_header("So sánh tổng điểm", "Thứ tự theo xếp hạng đã xuất", "trophy", "gold")
-        plot(charts.ranking_bar(chosen, 254), "compare_totals")
+        figure = charts.comparison_ranking_bar(chosen)
+        with st.container(key="comparison_totals_chart"):
+            logo_column, chart_column = st.columns([1, 14], gap=None)
+            with logo_column:
+                ui.bank_logo_axis(figure.data[0].y, height=figure.layout.height,
+                                  top=figure.layout.margin.t, bottom=figure.layout.margin.b)
+            with chart_column:
+                plot(figure, "compare_totals")
     if groups is not None:
         left, right = st.columns([1.65, 1], gap="medium")
         with left, ui.panel("comparison_matrix"):

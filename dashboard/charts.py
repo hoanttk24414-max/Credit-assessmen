@@ -5,18 +5,44 @@ from config import BANK_COLORS, DIGITAL_CODES, GROUP_ORDER
 from ui_components import number
 
 
-def style(figure, height=350):
+CHART_TEXT = "#0F2B63"
+CHART_SECONDARY_TEXT = "#526A8A"
+CHART_GRID = "#DCE8F5"
+CHART_AXIS = "#D3E1F0"
+CHART_HOVER_BACKGROUND = "#FFFFFF"
+
+
+def apply_light_plotly_theme(figure, height=350):
+    """Keep every Plotly figure readable when the host browser is dark."""
     figure.update_layout(
         height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Segoe UI Variable Text, Segoe UI, system-ui, sans-serif", size=12, color="#243d78"),
+        font=dict(family="Segoe UI Variable Text, Segoe UI, system-ui, sans-serif", size=12, color=CHART_TEXT),
         margin=dict(l=8, r=32, t=16, b=16),
-        legend=dict(orientation="h", x=0, y=1.18, title=None, font=dict(size=12)),
-        hoverlabel=dict(bgcolor="#11253e", font_color="#ffffff", font_size=13),
+        legend=dict(orientation="h", x=0, y=1.18, title=None,
+                    font=dict(size=12, color=CHART_TEXT),
+                    title_font=dict(color=CHART_TEXT)),
+        hoverlabel=dict(bgcolor=CHART_HOVER_BACKGROUND, bordercolor=CHART_AXIS,
+                        font=dict(color=CHART_TEXT, size=13)),
         bargap=0.32,
     )
-    figure.update_xaxes(showline=False, zeroline=False, gridcolor="#e9eef4", fixedrange=True)
-    figure.update_yaxes(showline=False, zeroline=False, gridcolor="#e9eef4", fixedrange=True)
+    figure.update_xaxes(
+        showline=False, zeroline=False, gridcolor=CHART_GRID, zerolinecolor=CHART_AXIS,
+        linecolor=CHART_AXIS, tickfont=dict(color=CHART_SECONDARY_TEXT), title_font=dict(color=CHART_TEXT),
+        fixedrange=True, automargin=True,
+    )
+    figure.update_yaxes(
+        showline=False, zeroline=False, gridcolor=CHART_GRID, zerolinecolor=CHART_AXIS,
+        linecolor=CHART_AXIS, tickfont=dict(color=CHART_SECONDARY_TEXT), title_font=dict(color=CHART_TEXT),
+        fixedrange=True, automargin=True,
+    )
+    for trace in figure.data:
+        if trace.text is not None:
+            trace.textfont = dict(color=CHART_TEXT)
+    figure.update_annotations(font=dict(color=CHART_TEXT))
     return figure
+
+
+style = apply_light_plotly_theme
 
 
 def ranking_bar(ranking, height=320, *, overview=False):
@@ -59,6 +85,21 @@ def group_comparison(groups, tickers):
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(range=[0, 105], tickvals=[0, 25, 50, 75, 100], title=None)
     return fig
+
+
+def logo_ranking_bar(ranking, height=254, *, overview=False):
+    """Reserve a predictable plot area for the adjacent HTML logo axis."""
+    figure = ranking_bar(ranking, height, overview=overview)
+    # Leave enough room for x ticks so automargin need not enlarge this area.
+    figure.update_layout(margin=dict(l=34, r=32, t=16, b=40))
+    # Equal category slots let an external logo row share each bar's centre.
+    # Ticker labels, exported order, values and the numeric axis stay intact.
+    figure.update_yaxes(autorange=False, range=[len(figure.data[0].y) - .5, -.5])
+    return figure
+
+
+def comparison_ranking_bar(ranking, height=254):
+    return logo_ranking_bar(ranking, height)
 
 
 def criterion_comparison(criteria, code, mode="normalized"):
