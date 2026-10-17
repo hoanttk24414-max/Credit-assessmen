@@ -73,9 +73,21 @@ def ranking_status(ranking):
         ui.html('<div class="ranking-status">' + badges + '</div>')
 
 
+def criterion_units(definitions):
+    units = {code: "điểm" for code in DIGITAL_CODES}
+    if definitions is None or not {"indicator", "unit"}.issubset(definitions.columns):
+        return units
+    aliases = {definition: code for code, definition in DEFINITION_ALIASES.items()}
+    for record in definitions[["indicator", "unit"]].dropna(subset=["indicator"]).to_dict("records"):
+        code = aliases.get(record["indicator"], record["indicator"])
+        unit = str(record["unit"]).strip()
+        units[code] = unit if unit else "—"
+    return units
+
+
 def overview():
-    ui.page_header("Đánh giá chuyển đổi số ngân hàng Việt Nam 2025",
-                   "Mô hình 12 tiêu chí định lượng + 3 tiêu chí định tính", PAGES[0])
+    ui.page_header(f"Đánh giá chuyển đổi số ngân hàng Việt Nam {YEAR}",
+                   "Mô hình 12 tiêu chí định lượng + 3 tiêu chí định tính", PAGES[0], overview=True)
     ranking = load(data.load_ranking)
     criteria = load(data.load_criterion_scores)
     metadata = load(data.load_scoring_metadata)
@@ -92,13 +104,17 @@ def overview():
         ("Điểm cao nhất", ui.number(ranking.total_score.max()) if ranking is not None else "N/A", "Thang điểm 100"),
     ])
     if ranking is not None:
-        left, right = st.columns([1.15, 1], gap="medium")
+        left, right = st.columns([1, 1.04], gap="medium")
         with left, ui.panel("overview_table"):
             ui.section_header("Bảng xếp hạng ngân hàng", "Kết quả tổng hợp từ mô hình của nhóm", "trophy", "gold")
             ui.ranking_table(ranking)
         with right, ui.panel("overview_bar"):
-            ui.section_header("Điểm tổng hợp ngân hàng", "So sánh trên thang 0–100", "file")
-            plot(charts.ranking_bar(ranking, 190), "overview_ranking")
+            ui.section_header("Điểm tổng hợp ngân hàng", "So sánh trên thang 0–100", "bars")
+            chart, context = st.columns([3, 1], gap="small")
+            with chart:
+                plot(charts.ranking_bar(ranking, 202, overview=True), "overview_ranking")
+            with context:
+                ui.ranking_context(ranking)
     groups = load(data.load_group_scores)
     if groups is not None:
         with ui.panel("overview_groups"):
@@ -146,14 +162,16 @@ def comparison():
     if groups is not None:
         left, right = st.columns([1.65, 1], gap="medium")
         with left, ui.panel("comparison_matrix"):
-            ui.section_header("Ma trận so sánh", "Bốn dòng đầu là điểm nhóm / 100; dòng cuối là tổng điểm đã xuất")
+            ui.section_header("Ma trận so sánh", "Bốn dòng đầu là điểm nhóm / 100; dòng cuối là tổng điểm đã xuất", "layers", "teal")
             matrix = group_order(groups.loc[groups.ticker.isin(selected)]).pivot(index="group_label", columns="ticker", values="group_score_100")
             order = group_order(groups).group_label.drop_duplicates().tolist()
             matrix = matrix.reindex(index=order, columns=chosen.ticker)
             matrix.loc["Tổng điểm"] = chosen.set_index("ticker").total_score
-            ui.data_table(matrix.rename_axis("Nhóm").reset_index(), formats={t: "%.2f" for t in chosen.ticker}, key="comparison_matrix")
+            ui.comparison_matrix_table(matrix, chosen)
+            with st.container(key="comparison_matrix_native"):
+                ui.data_table(matrix.rename_axis("Nhóm").reset_index(), formats={t: "%.2f" for t in chosen.ticker}, key="comparison_matrix")
         with right, ui.panel("comparison_summary"):
-            ui.section_header("Nhận định ngân hàng đã chọn", "Giữ nguyên các trường hợp đồng điểm", "bulb", "gold")
+            ui.section_header("Nhận định ngân hàng đã chọn", "Giải nguyên các trường hợp động điểm", "bulb", "gold")
             ui.analytical_summary(chosen, selected_groups)
 
 
@@ -162,6 +180,8 @@ def criterion_detail():
     criteria = load(data.load_criterion_scores)
     if criteria is None:
         return
+    definitions = load(data.load_workbook_sheet, sheet="Metric_Definitions")
+    units = criterion_units(definitions)
     with ui.panel("criterion_filter"):
         a, b, c, d = st.columns([1, 1.15, .85, 1.4], gap="medium")
         with a:
@@ -183,34 +203,38 @@ def criterion_detail():
     left, right = st.columns([2.65, 1], gap="medium")
     with left, ui.panel("criterion_results"):
         ui.section_header(f"Danh sách tiêu chí · {ticker}", f"{len(filtered)} tiêu chí phù hợp · chuẩn hóa thang 0–1", "file")
+        search = st.text_input("Tìm kiếm tiêu chí", key="criterion_search", placeholder="Tìm theo mã hoặc tên tiêu chí")
+        visible = filtered.loc[
+            filtered.criterion.str.contains(search, case=False, na=False)
+            | filtered.criterion.map(lambda value: CRITERION_LABELS.get(value, value)).str.contains(search, case=False, na=False)
+        ] if search else filtered
         columns = ["criterion", "group_label", "raw_value", "normalized_0_1", "effective_weight", "weighted_score", "status"]
         if st.checkbox("Hiển thị trọng số gốc và chiều đánh giá", key="criterion_extra_columns"):
             columns += ["base_weight", "direction"]
-        display = filtered[[c for c in columns if c in filtered]].copy()
+        display = visible[[c for c in columns if c in visible]].copy()
         if "direction" in display:
             display["direction"] = display.direction.map(lambda v: DIRECTION_LABELS.get(v, v))
         compact_labels = {**LABELS, "normalized_0_1": "Chuẩn hóa (0–1)", "effective_weight": "Trọng số", "weighted_score": "Đóng góp"}
-        ui.data_table(display, compact_labels, {"raw_value": "%.4f", "normalized_0_1": "%.6f", "base_weight": "%.4f", "effective_weight": "%.4f", "weighted_score": "%.4f"}, height=min(528, 38 + len(display) * 32), key="criterion_table")
+        ui.criterion_table(visible, units, code)
+        with st.container(key="criterion_table_native"):
+            ui.data_table(display, compact_labels, {"raw_value": "%.2f", "normalized_0_1": "%.2f", "base_weight": "%.2f", "effective_weight": "%.2f", "weighted_score": "%.2f"}, height=min(528, 38 + len(display) * 32), key="criterion_table")
     row = filtered.loc[filtered.criterion.eq(code)].iloc[0]
     with right, ui.panel("criterion_detail"):
         ui.section_header("Chi tiết tiêu chí", ticker, "layers", "violet")
-        ui.html(f'<div class="criterion-name"><strong>{ui.safe(code)}</strong><p>{ui.safe(CRITERION_LABELS.get(code, code))}</p></div>')
-        if "status" in row:
-            ui.html(ui.status_badge(row["status"]))
-        ui.html(f'<div class="criterion-context"><p>Nhóm: <strong>{ui.safe(row.group_label)}</strong></p>'
-                f'<p>{ui.safe(DIRECTION_LABELS.get(row.direction, row.direction))}</p></div>')
-        ui.html('<dl class="criterion-values">' + "".join(f'<div><dt>{ui.safe(label)}</dt><dd>{ui.safe(value)}</dd></div>' for label, value in [
-            ("Giá trị gốc", ui.number(row.raw_value, 4)), ("Chuẩn hóa (0–1)", ui.number(row.normalized_0_1, 6)),
-            ("Trọng số gốc", ui.number(row.base_weight, 4)), ("Trọng số hiệu lực", ui.number(row.effective_weight, 4)),
-            ("Điểm đóng góp", ui.number(row.weighted_score, 6))]) + '</dl>')
+        bank_name = filtered.loc[filtered.ticker.eq(ticker), "bank"].iloc[0]
+        ui.html(f'<div class="criterion-bank-name">{ui.safe(ticker)} · {ui.safe(bank_name)}</div>')
+        ui.criterion_detail_card(row, units, bank_name)
     with ui.panel("criterion_chart"):
-        ui.section_header(f"{code} · So sánh năm ngân hàng", "Điểm chuẩn hóa (0–1) từ kết quả chấm điểm")
-        plot(charts.criterion_comparison(criteria, code), "criterion_comparison")
+        chart_mode = st.selectbox("Hiển thị biểu đồ", ["Chuẩn hóa (0–1)", "Giá trị gốc"], key="criterion_chart_mode")
+        mode = "raw" if chart_mode == "Giá trị gốc" else "normalized"
+        ui.section_header(f"{code} · So sánh giữa các ngân hàng",
+                          f"So sánh {('giá trị gốc' if mode == 'raw' else 'điểm chuẩn hóa')} của tiêu chí {code} (đơn vị: {units.get(code, '—')})",
+                          "bars")
+        plot(charts.criterion_comparison(criteria, code, mode=mode), "criterion_comparison")
     with st.expander("Giải thích tiêu chí và ngữ cảnh dữ liệu"):
         if code in DIGITAL_CODES:
             st.write("Đánh giá định tính trên thang 0–3, dựa trên bằng chứng. Điểm do upstream cung cấp; Dashboard chỉ hiển thị kết quả.")
         else:
-            definitions = load(data.load_workbook_sheet, sheet="Metric_Definitions")
             if definitions is not None and {"indicator", "formula", "unit"}.issubset(definitions.columns):
                 definition = definitions.loc[definitions.indicator.eq(DEFINITION_ALIASES.get(code, code))]
                 if not definition.empty:
@@ -241,14 +265,16 @@ def digital():
             ui.section_header("Ma trận chuyển đổi số", "Điểm D1–D3 của toàn bộ ngân hàng trong nghiên cứu")
             columns = ["bank_name", "bank_code"] + [f"{code}_score_0_3" for code in DIGITAL_CODES]
             labels = {**LABELS, **{f"{code}_score_0_3": code for code in DIGITAL_CODES}}
-            ui.data_table(dataset[columns], labels, {f"{code}_score_0_3": "%d" for code in DIGITAL_CODES}, key="digital_matrix")
+            ui.digital_matrix_table(dataset[columns], ticker)
+            with st.container(key="digital_matrix_native"):
+                ui.data_table(dataset[columns], labels, {f"{code}_score_0_3": "%d" for code in DIGITAL_CODES}, key="digital_matrix")
         with right, ui.panel("digital_chart"):
             ui.section_header("Điểm D1–D3 theo ngân hàng", f"Ngân hàng đang xem: {ticker} · thang điểm 0–3", "bars", "violet")
             plot(charts.digital_comparison(dataset, ticker), "digital_comparison")
     if evidence is not None:
         if ticker is None:
             ticker = bank_picker(evidence, "evidence_bank", "bank_code", "bank_name" if "bank_name" in evidence else "bank_code")
-        ui.section_header(f"Bằng chứng & nguồn tham chiếu · {ticker}", "Tài liệu tham chiếu cho điểm D1–D3; trạng thái bằng chứng xem tại Nguồn dữ liệu & phương pháp.", "file")
+        ui.section_header(f"Bằng chứng & nguồn tham chiếu · {ticker}", "Tài liệu tham chiếu cho điểm D1–D3; trạng thái bằng chứng xem tại Nguồn dữ liệu & phương pháp.", "file", "blue")
         selected = data.select_bank(evidence, ticker, "bank_code")
         for column, code in zip(st.columns(3, gap="medium"), DIGITAL_CODES):
             with column:
@@ -266,6 +292,8 @@ def sources():
     metadata = load(data.load_scoring_metadata)
     ranking = load(data.load_ranking)
     if ranking is not None:
+        # Keep the existing review metadata contract; the sources-page CSS
+        # presents it unobtrusively instead of as a prominent warning banner.
         ranking_status(ranking)
     ui.metrics([
         ("Bản ghi tài chính", len(finance) if finance is not None else "N/A", "Dữ liệu đã tổng hợp"),
@@ -287,10 +315,9 @@ def sources():
             provenance = [c for c in ("ticker", "year", "source", "status", "source_url") if c in filtered]
             ui.source_table(filtered[provenance].drop_duplicates(), LABELS, height=360)
             with st.expander("Chi tiết dữ liệu tài chính"):
-                ui.data_table(filtered[[c for c in preferred if c in filtered]], LABELS, {"value_clean": "%.4f", "year": "%d"}, links=("source_url",), height=400, key="financial_raw", show_review=True)
+                ui.data_table(filtered[[c for c in preferred if c in filtered]], LABELS, {"value_clean": "%.2f", "year": "%d"}, links=("source_url",), height=400, key="financial_raw", show_review=True)
             st.caption("Đơn vị ty_dong trong nguồn tương ứng tỷ đồng. URL trống được giữ là thiếu dữ liệu.")
-            if "source" in filtered:
-                ui.data_table(filtered.source.value_counts(dropna=False).rename_axis("Nguồn tài chính").reset_index(name="Bản ghi"), height=140, key="financial_categories")
+            ui.source_summary(filtered, "source", "Tổng hợp theo loại nguồn")
     if evidence is not None:
         with center, ui.panel("digital_sources"):
             ui.section_header("Bằng chứng chuyển đổi số", "D1–D3 · nguồn, điểm và trạng thái", "layers", "violet")
@@ -304,15 +331,12 @@ def sources():
                 ui.data_table(shown, LABELS, links=("source_url",), height=400, key="evidence_raw", show_review=True)
             st.caption("Bản ghi đang rà soát được giữ nguyên trạng thái từ dữ liệu nguồn.")
             if "source_type" in shown:
-                ui.data_table(shown.source_type.value_counts(dropna=False).rename_axis("Loại nguồn số").reset_index(name="Bản ghi"), height=140, key="digital_categories")
+                ui.source_summary(shown, "source_type", "Thống kê loại nguồn bằng chứng")
     with right, ui.panel("methodology"):
         ui.section_header("Phương pháp đánh giá", "12 định lượng + 3 định tính", "shield", "teal")
         ui.methodology_steps(metadata)
-        with st.expander("Trọng số nhóm và ghi chú dữ liệu"):
-            groups = load(data.load_group_scores)
-            if groups is not None:
-                ui.data_table(group_order(groups)[["group_label", "group_max"]].drop_duplicates(), LABELS, {"group_max": "%.4f"}, key="group_weights")
-            st.caption("included_in_BCDS_15 là metadata còn sót từ iteration cũ; trường này không được sử dụng trong scoring run hiện tại. D1–D3 thuộc mô hình 15 tiêu chí đang trình bày.")
+        criteria = load(data.load_criterion_scores)
+        ui.group_weights_card(criteria)
     with ui.panel("disclaimer"):
         ui.section_header("Lưu ý & tuyên bố", symbol="shield", tone="gold")
         ui.html('<p class="disclaimer-copy">Kết quả phục vụ nghiên cứu so sánh, không phải xếp hạng tín nhiệm chính thức. Bằng chứng có trạng thái đang rà soát chưa được xác thực độc lập.</p>')
@@ -335,7 +359,22 @@ with st.sidebar:
     if st.button("Làm mới dữ liệu", width="stretch", key="refresh"):
         data.refresh_data()
         st.toast("Đã đọc lại dữ liệu đã xuất.")
-    ui.html('<div class="sidebar-illustration">' + ui.bank_art("sidebar") + f'<p>Digital Banking<br>Vietnam {YEAR}</p></div>')
+    art = ui.overview_art("sidebar") if page == PAGES[0] else ui.bank_art("sidebar")
+    ui.html('<div class="sidebar-illustration">' + art + f'<p>Digital Banking<br>Vietnam {YEAR}</p></div>')
 
-{PAGES[0]: overview, PAGES[1]: comparison, PAGES[2]: criterion_detail, PAGES[3]: digital, PAGES[4]: sources}[page]()
+if page == PAGES[0]:
+    with st.container(key="overview_page"):
+        overview()
+elif page == PAGES[1]:
+    with st.container(key="comparison_page"):
+        comparison()
+elif page == PAGES[2]:
+    with st.container(key="criterion_detail_page"):
+        criterion_detail()
+elif page == PAGES[3]:
+    with st.container(key="digital_page"):
+        digital()
+else:
+    with st.container(key="sources_page"):
+        sources()
 ui.html('<div class="footer-note">Digital Banking · Nghiên cứu nhóm 2025 · Các giá trị và trạng thái được trình bày từ output của dự án.</div>')
