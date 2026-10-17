@@ -2,11 +2,14 @@
 from html import escape
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlsplit
+from base64 import b64encode
+from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from config import BANK_COLORS, STATUS_LABELS, YEAR
+from config import BANK_COLORS, CRITERION_LABELS, DIGITAL_CODES, DIRECTION_LABELS, GROUP_ORDER, STATUS_LABELS, YEAR
 
 
 # Presentation-only vector artwork. No reference screenshot is rendered in the UI.
@@ -23,6 +26,9 @@ ICONS = {
     "bulb": '<path d="M8 17c0-4-4-5-4-9a8 8 0 0 1 16 0c0 4-4 5-4 9H8Zm1 3h6m-5 3h4M12 7v10"/>',
     "fingerprint": '<path d="M4 12a8 8 0 0 1 16 0m-13 8c3-3 1-6 2-9a3 3 0 0 1 6 1c0 4 0 7 3 9M3 17c2-2 2-3 2-5a7 7 0 0 1 14 0v4m-7-4c0 5-1 7-2 10"/>',
     "chip": '<path d="M5 5h14v14H5V5Zm4 4h6v6H9V9ZM8 2v3m8-3v3M8 19v3m8-3v3M2 8h3m-3 8h3m14-8h3m-3 8h3"/>',
+    "calendar": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6m10-6v6M3 10h18M8 14h3m3 0h2m-8 3h3"/>',
+    "trend-down": '<path d="M3 6v12h18M5 9l4 4 3-3 6 6m-4 0h4v-4"/>',
+    "trend-up": '<path d="M3 18V6h18M5 15l4-4 3 3 6-6m-4 0h4v4"/>',
 }
 
 
@@ -62,6 +68,71 @@ def text(value):
 
 def safe(value):
     return escape(text(value), quote=True)
+
+
+@lru_cache(maxsize=32)
+def _bank_logo_data(ticker):
+    """Resolve optional local bank logos without making them a data dependency."""
+    if not ticker:
+        return None
+    asset_dir = Path(__file__).with_name("assets") / "bank_logos"
+    for extension, mime in (("png", "image/png"), ("jpg", "image/jpeg"), ("svg", "image/svg+xml")):
+        asset = asset_dir / f"{str(ticker).lower()}.{extension}"
+        if asset.exists():
+            return f"data:{mime};base64," + b64encode(asset.read_bytes()).decode("ascii")
+    return None
+
+
+def bank_logo(ticker, *, size="normal"):
+    ticker = text(ticker)
+    source = _bank_logo_data(ticker)
+    if source:
+        return f'<img class="bank-logo bank-logo-{safe(size)}" src="{source}" alt="{safe(ticker)}" />'
+    color = BANK_COLORS.get(ticker, "#345da3")
+    initials = safe(ticker[:2])
+    return (f'<span class="bank-logo-fallback bank-logo-{safe(size)}" style="--bank:{color}" '
+            f'aria-label="{safe(ticker)}">{initials}</span>')
+
+
+def _group_icon(group_label):
+    label = text(group_label).lower()
+    if "tín dụng" in label:
+        return "shield"
+    if "vốn" in label:
+        return "coins"
+    if "sinh lời" in label or "hiệu quả" in label:
+        return "bars"
+    if "chuyển đổi" in label:
+        return "screen"
+    return "layers"
+
+
+def comparison_matrix_table(matrix, chosen):
+    """Render the visual matrix while callers retain the native dataframe contract."""
+    tickers = chosen.ticker.tolist()
+    rows = []
+    for group_label, values in matrix.iterrows():
+        is_total = group_label == "Tổng điểm"
+        numeric = pd.to_numeric(values, errors="coerce")
+        best = numeric.max() if not numeric.dropna().empty and not is_total else None
+        cells = []
+        for ticker in tickers:
+            value = numeric.get(ticker)
+            color = BANK_COLORS.get(ticker, "#345da3")
+            highlighted = best is not None and pd.notna(value) and value == best
+            classes = "matrix-value matrix-best" if highlighted else "matrix-value"
+            if is_total:
+                classes += " matrix-total-value"
+            cells.append(f'<td class="{classes}" style="--bank:{color}">{safe(number(value))}</td>')
+        row_class = "matrix-total" if is_total else ""
+        label_icon = icon(_group_icon(group_label), "gold" if is_total else "blue")
+        rows.append(f'<tr class="{row_class}"><th>{label_icon}<span>{safe(group_label)}</span></th>{"".join(cells)}</tr>')
+    headers = "".join(
+        f'<th><div class="matrix-bank-head">{bank_logo(ticker, size="small")}<strong>{safe(ticker)}</strong></div></th>'
+        for ticker in tickers
+    )
+    html(f'<div class="comparison-matrix-wrap"><table class="comparison-matrix">'
+         f'<thead><tr><th>Nhóm tiêu chí</th>{headers}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 
 def number(value, digits=2):
@@ -108,16 +179,88 @@ def panel(name):
     return st.container(border=False, key="panel_" + name)
 
 
-def page_header(title, subtitle, section):
+@lru_cache(maxsize=1)
+def _banking_city_source():
+    asset = Path(__file__).with_name("assets") / "banking-city.png"
+    return "data:image/png;base64," + b64encode(asset.read_bytes()).decode("ascii")
+
+
+def overview_art(location):
+    return (f'<img class="overview-bank-art art-{safe(location)}" '
+            f'src="{_banking_city_source()}" alt="" aria-hidden="true" />')
+
+
+def page_header(title, subtitle, section, *, overview=False):
+    artwork = overview_art("hero") if overview else bank_art("header")
     html(f'<header class="page-heading"><div class="heading-copy"><div class="page-context">Nghiên cứu của nhóm · {YEAR}</div>'
          f'<h1>{safe(title)}</h1><p>{safe(subtitle)}</p></div>'
-         f'<div class="header-art">{bank_art("header")}</div><div class="year-card">{icon("file")}'
+         f'<div class="header-art">{artwork}</div><div class="year-card">{icon("calendar" if overview else "file")}'
          f'<span>Năm đánh giá<strong>{YEAR}</strong></span></div></header>')
 
 
 def section_header(title, note=None, symbol=None, tone="blue"):
     html(f'<div class="section-heading">{icon(symbol, tone) if symbol else ""}<div><h2>{safe(title)}</h2>'
          f'{"<p>" + safe(note) + "</p>" if note else ""}</div></div>')
+
+
+def criterion_group_tone(group):
+    return {
+        "credit": "blue",
+        "capital": "teal",
+        "profitability": "violet",
+        "digital": "gold",
+    }.get(text(group), "blue")
+
+
+def criterion_table(frame, units, selected=None):
+    headers = ("#", "Tiêu chí", "Nhóm", "Đơn vị", "Giá trị gốc",
+               "Chuẩn hóa (0–1)", "Trọng số", "Đóng góp")
+    rows = []
+    for position, row in enumerate(frame.to_dict("records"), 1):
+        selected_class = " criterion-selected" if row.get("criterion") == selected else ""
+        tone = criterion_group_tone(row.get("group"))
+        group = f'<span class="criterion-group-chip tone-{tone}">{safe(row.get("group_label"))}</span>'
+        rows.append(
+            f'<tr class="{selected_class}"><td class="criterion-index">{position}</td>'
+            f'<th>{safe(row.get("criterion"))}</th><td>{group}</td>'
+            f'<td class="criterion-unit">{safe(units.get(row.get("criterion"), "—"))}</td>'
+            f'<td class="criterion-number" data-raw="{safe(number(row.get("raw_value"), 6))}">{safe(number(row.get("raw_value")))}</td>'
+            f'<td class="criterion-number" data-raw="{safe(number(row.get("normalized_0_1"), 6))}">{safe(number(row.get("normalized_0_1")))}</td>'
+            f'<td class="criterion-number" data-raw="{safe(number(row.get("effective_weight"), 6))}">{safe(number(row.get("effective_weight")))}</td>'
+            f'<td class="criterion-number" data-raw="{safe(number(row.get("weighted_score"), 6))}">{safe(number(row.get("weighted_score")))}</td></tr>'
+        )
+    html('<div class="criterion-table-wrap"><table class="criterion-table"><thead><tr>'
+         + "".join(f"<th>{safe(header)}</th>" for header in headers)
+         + f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+
+
+def criterion_detail_card(row, units, bank_name):
+    direction = text(row.get("direction")).lower()
+    direction_label = DIRECTION_LABELS.get(direction, text(row.get("direction")))
+    direction_tone = "low" if direction == "low" else "high" if direction == "high" else "fixed"
+    direction_icon = "trend-down" if direction == "low" else "trend-up" if direction == "high" else "chip"
+    cards = (
+        ("Giá trị gốc", number(row.get("raw_value")), units.get(row.get("criterion"), "—"), "blue", "coins"),
+        ("Chuẩn hóa (0–1)", number(row.get("normalized_0_1")), "", "violet", "bars"),
+        ("Trọng số gốc", number(row.get("base_weight")), "điểm", "teal", "chip"),
+        ("Trọng số hiệu lực", number(row.get("effective_weight")), "điểm", "gold", "star"),
+        ("Điểm đóng góp", number(row.get("weighted_score")), "điểm", "blue", "trophy"),
+    )
+    metrics = "".join(
+        f'<div class="criterion-metric tone-{tone}">{icon(symbol, tone)}<div><span>{safe(label)}</span>'
+        f'<strong>{safe(value)}<small>{safe(unit)}</small></strong></div></div>'
+        for label, value, unit, tone, symbol in cards
+    )
+    html(f'<div class="criterion-detail-identity"><div><strong>{safe(row.get("criterion"))}</strong>'
+         f'<p>{safe(CRITERION_LABELS.get(row.get("criterion"), row.get("criterion")))}</p></div>'
+         f'<span class="direction-badge direction-{direction_tone}">{icon(direction_icon, direction_tone)}'
+         f'{safe(direction_label)}</span></div>'
+         f'<div class="criterion-metadata">'
+         f'<p>{icon("layers", "violet")}<span>Nhóm tiêu chí</span><strong>{safe(row.get("group_label"))}</strong></p>'
+         f'<p>{icon("file", "blue")}<span>Loại tiêu chí</span><strong>{"Định tính" if row.get("criterion") in ("D1", "D2", "D3") else "Chỉ tiêu tài chính"}</strong></p>'
+         f'<p>{icon("coins", "teal")}<span>Đơn vị</span><strong>{safe(units.get(row.get("criterion"), "—"))}</strong></p></div>'
+         f'<h3 class="criterion-metrics-title">Các chỉ số chi tiết</h3>'
+         f'<div class="criterion-metrics">{metrics}</div>')
 
 
 def metrics(items):
@@ -136,12 +279,24 @@ def ranking_table(ranking):
     for record in ranking.sort_values("rank", kind="stable").to_dict("records"):
         ticker = record["ticker"]
         medal = {1: "gold", 2: "silver", 3: "bronze"}.get(record["rank"], "plain")
-        rows.append(f'<tr><td><span class="rank-number {medal}">{safe(number(record["rank"], 0))}</span></td>'
+        leader_class = ' class="ranking-leader"' if record["rank"] == ranking["rank"].min() else ""
+        rows.append(f'<tr{leader_class}><td><span class="rank-number {medal}">{safe(number(record["rank"], 0))}</span></td>'
                     f'<td><span class="bank-dot" style="--bank:{BANK_COLORS.get(ticker, "#345da3")}"></span><strong>{safe(record["bank"])}</strong></td>'
                     f'<td><span class="ticker" style="--bank:{BANK_COLORS.get(ticker, "#366b9c")}">{safe(ticker)}</span></td>'
                     f'<td class="numeric"><strong>{safe(number(record["total_score"]))}</strong></td></tr>')
     html('<div class="ranking-wrap"><table class="ranking-table"><thead><tr><th>Hạng</th><th>Ngân hàng</th>'
          '<th>Mã</th><th class="numeric">Tổng điểm</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+
+
+def ranking_context(ranking):
+    """A supporting metric from the same exported ranks, including tied leaders."""
+    leaders = ranking.loc[ranking["rank"].eq(ranking["rank"].min())]
+    names = " · ".join(leaders.ticker)
+    html('<aside class="ranking-context"><div class="context-illustration" aria-hidden="true">'
+         '<span></span><span></span><span></span><span></span></div>'
+         f'<span class="context-label">Dẫn đầu tổng điểm</span><strong>{safe(names)}</strong>'
+         f'<div class="context-score">{safe(number(ranking.total_score.max()))}<small> / 100</small></div>'
+         '<p>Theo kết quả<br>mô hình hiện tại</p></aside>')
 
 
 def insight_cards(groups):
@@ -174,25 +329,53 @@ def bank_summary(summary, strongest, weakest):
 
 def digital_cards(record, labels):
     cards = []
+    styles = {
+        "D1": ("violet", "fingerprint"),
+        "D2": ("teal", "file"),
+        "D3": ("blue", "chip"),
+    }
     for code in ("D1", "D2", "D3"):
         value = record.get(f"{code}_score_0_3")
-        symbol = {"D1": "fingerprint", "D2": "file", "D3": "chip"}[code]
-        cards.append(f'<article class="digital-card">{icon(symbol, "teal" if code == "D2" else "violet")}<div><div class="digital-card-top"><span class="digital-token">{code}</span>'
+        tone, symbol = styles[code]
+        cards.append(f'<article class="digital-card digital-{code.lower()} tone-{tone}">{icon(symbol, tone)}<div><div class="digital-card-top"><span class="digital-token">{code}</span>'
                      f'{status_badge(record.get(code + "_status"))}</div><h2>{safe(labels[code])}</h2>'
                      f'<div class="digital-value">{safe(number(value, 0))}<span> / 3</span></div>'
-                     '</div></article>')
+                     '</div><span class="digital-card-mark" aria-hidden="true"></span></article>')
     html('<div class="digital-grid">' + "".join(cards) + '</div>')
+
+
+def digital_matrix_table(dataset, selected):
+    styles = {"D1": "violet", "D2": "teal", "D3": "blue"}
+    rows = []
+    for record in dataset.to_dict("records"):
+        selected_class = " digital-selected" if record.get("bank_code") == selected else ""
+        cells = []
+        for code in DIGITAL_CODES:
+            value = record.get(f"{code}_score_0_3")
+            try:
+                score = float(value)
+                level = max(0, min(3, int(score)))
+            except (TypeError, ValueError):
+                level = "missing"
+            cells.append(f'<td><span class="digital-score-cell score-{level}">{safe(number(value, 0))}</span></td>')
+        rows.append(f'<tr class="{selected_class}"><th>{safe(record.get("bank_name"))}</th>'
+                    f'<td class="digital-ticker">{safe(record.get("bank_code"))}</td>{"".join(cells)}</tr>')
+    html('<div class="digital-matrix-wrap"><table class="digital-matrix-table"><thead><tr>'
+         '<th>Ngân hàng</th><th>Mã</th><th class="tone-violet">D1</th><th class="tone-teal">D2</th><th class="tone-blue">D3</th>'
+         f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 
 def evidence_card(record, bank=None):
     link = valid_url(record.get("source_url"))
     source_link = f'<a class="source-link" href="{escape(link, quote=True)}" target="_blank" rel="noopener noreferrer">Mở tài liệu nguồn ↗</a>' if link else '<span class="muted">URL: N/A</span>'
-    html(f'<article class="evidence-card"><div class="evidence-top"><div><span class="evidence-code">{safe(record.get("indicator_code"))}</span>'
+    code = text(record.get("indicator_code"))
+    tone = {"D1": "violet", "D2": "teal", "D3": "blue"}.get(code, "blue")
+    html(f'<article class="evidence-card digital-evidence-{safe(code.lower())} tone-{tone}"><div class="evidence-top"><div><span class="evidence-code">{safe(code)}</span>'
          f'<strong>{safe(bank) + " · " if bank else ""}{safe(record.get("indicator_name", record.get("indicator_code")))}</strong></div>{status_badge(record.get("status"))}</div>'
          f'<p class="evidence-text">{safe(record.get("evidence_text"))}</p><div class="evidence-meta">'
-         f'<div><span>Điểm / Thời điểm</span><p>{safe(number(record.get("score_0_3"), 0))} / 3 · {safe(record.get("as_of"))}</p></div>'
-         f'<div><span>Nguồn bằng chứng</span><p>{safe(record.get("source_description"))}</p></div>'
-         f'<div><span>Loại nguồn / Trang</span><p>{safe(record.get("source_type"))} · {safe(record.get("page_or_section"))}</p></div></div>'
+         f'<div><span>{icon("star", tone)}Điểm / Thời điểm</span><p>{safe(number(record.get("score_0_3"), 0))} / 3 · {safe(record.get("as_of"))}</p></div>'
+         f'<div><span>{icon("file", tone)}Nguồn bằng chứng</span><p>{safe(record.get("source_description"))}</p></div>'
+         f'<div><span>{icon("screen", tone)}Loại nguồn / Trang</span><p>{safe(record.get("source_type"))} · {safe(record.get("page_or_section"))}</p></div></div>'
          f'<div class="evidence-footer">{source_link}</div></article>')
 
 
@@ -202,10 +385,14 @@ def bank_mini_cards(ranking, groups):
         part = groups.loc[groups.ticker.eq(row["ticker"])] if groups is not None else None
         strongest = " · ".join(part.loc[part.group_score_100.eq(part.group_score_100.max()), "group_label"]) if part is not None else "N/A"
         color = BANK_COLORS.get(row["ticker"], "#345da3")
-        cards.append(f'<article class="bank-mini" style="--bank:{color}"><div class="bank-mini-title">{icon("shield", "blue")}'
-                     f'<div><strong>{safe(row["bank"])}</strong><span>{safe(row["ticker"])}</span></div></div>'
-                     f'<div class="mini-score">{number(row["total_score"])}<small> / 100</small><span>Hạng {number(row["rank"], 0)}</span></div>'
-                     f'<p>Mạnh nhất: {safe(strongest)}</p></article>')
+        values = part.group_score_100.tolist() if part is not None else []
+        spark = "".join(f'<i style="--spark:{max(8, min(100, float(value)))}%"></i>' for value in values)
+        cards.append(f'<article class="bank-mini" style="--bank:{color}"><div class="bank-mini-title">'
+                     f'{bank_logo(row["ticker"])}'
+                     f'<div><strong>{safe(row["bank"])}</strong><span>{safe(row["ticker"])}</span></div>'
+                     f'<em>Hạng {safe(number(row["rank"], 0))}</em></div>'
+                     f'<div class="mini-score">{number(row["total_score"])}<small> / 100</small></div>'
+                     f'<p>Mạnh nhất: {safe(strongest)}</p><div class="mini-spark" aria-hidden="true">{spark}</div></article>')
     html(f'<div class="bank-mini-grid" style="--count:{len(cards)}">' + "".join(cards) + '</div>')
 
 
@@ -214,9 +401,14 @@ def analytical_summary(ranking, groups):
         part = groups.loc[groups.ticker.eq(row["ticker"])]
         strong = part.loc[part.group_score_100.eq(part.group_score_100.max()), "group_label"].tolist()
         weak = part.loc[part.group_score_100.eq(part.group_score_100.min()), "group_label"].tolist()
-        html(f'<div class="analysis-row"><span class="ticker" style="--bank:{BANK_COLORS.get(row["ticker"], "#345da3")}">{safe(row["ticker"])}</span>'
-             f'<p><strong>{number(row["total_score"])} / 100</strong> · Hạng {number(row["rank"], 0)}<br>'
-             f'Mạnh nhất: {safe(" · ".join(strong))}<br><span>Thấp nhất: {safe(" · ".join(weak))}</span></p></div>')
+        color = BANK_COLORS.get(row["ticker"], "#345da3")
+        html(f'<div class="analysis-row" style="--bank:{color}">'
+             f'<span class="rank-number plain">{safe(number(row["rank"], 0))}</span>'
+             f'{bank_logo(row["ticker"])}'
+             f'<div><strong>{safe(row["ticker"])} · {safe(number(row["total_score"]))}</strong>'
+             f'<small> / 100 · Hạng {safe(number(row["rank"], 0))}</small>'
+             f'<p>Mạnh nhất: {safe(" · ".join(strong))}<br><span>Thấp nhất: {safe(" · ".join(weak))}</span></p></div>'
+             '<span class="analysis-arrow" aria-hidden="true">›</span></div>')
 
 
 def methodology_steps(metadata):
@@ -271,6 +463,21 @@ def source_table(frame, labels, height):
                 content = f'<a href="{safe(url)}" target="_blank" rel="noopener noreferrer" aria-label="Mở tài liệu nguồn">Mở ↗</a>' if url else '<span class="muted">N/A</span>'
             elif column == "status":
                 content = status_badge(value, show_review=True)
+            elif column == "indicator_code":
+                tone = {"D1": "violet", "D2": "teal", "D3": "blue"}.get(text(value), "blue")
+                content = f'<span class="source-chip source-chip-{tone}">{safe(value)}</span>'
+            elif column == "score_0_3":
+                try:
+                    score = int(float(value))
+                except (TypeError, ValueError):
+                    score = -1
+                tone = "good" if score >= 3 else "mid" if score == 2 else "low"
+                content = f'<span class="source-score source-score-{tone}">{safe(number(value, 0))}</span>'
+            elif column in ("source", "source_type"):
+                raw = text(value)
+                lowered = raw.lower()
+                tone = "aqua" if "official" in lowered or "chính thức" in lowered else "violet" if "audit" in lowered or "kiểm toán" in lowered else "blue"
+                content = f'<span class="source-chip source-chip-{tone}">{safe(value)}</span>'
             else:
                 content = safe(number(value, 0) if column == "score_0_3" else value)
             cells.append(f'<td class="source-col-{safe(column)}">{content}</td>')
@@ -278,3 +485,38 @@ def source_table(frame, labels, height):
     headers = "".join(f'<th scope="col">{safe(labels.get(column, column))}</th>' for column in frame.columns)
     html(f'<div class="source-scroll" style="--table-height:{height}px" tabindex="0" role="region" aria-label="Bảng nguồn dữ liệu có thể cuộn">'
          f'<table class="source-table"><thead><tr>{headers}</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+
+
+def source_summary(frame, column, title):
+    if frame is None or frame.empty or column not in frame:
+        html(f'<div class="source-summary"><strong>{safe(title)}</strong><p>Không có dữ liệu phù hợp.</p></div>')
+        return
+    counts = frame[column].fillna("N/A").astype(str).value_counts()
+    maximum = max(counts.tolist()) if len(counts) else 1
+    rows = []
+    for index, (label, count) in enumerate(counts.items()):
+        tone = ("aqua", "blue", "violet", "teal")[index % 4]
+        rows.append(f'<div class="source-summary-row"><div><span class="source-summary-dot tone-{tone}"></span><span>{safe(label)}</span><strong>{safe(count)}</strong></div>'
+                    f'<span class="source-summary-track"><i class="tone-{tone}" style="--bar:{float(count) / maximum * 100:.1f}%"></i></span></div>')
+    html(f'<section class="source-summary"><div class="source-summary-title">{icon("bars", "teal")}<div><strong>{safe(title)}</strong><small>Số bản ghi theo từng loại nguồn</small></div></div>{"".join(rows)}</section>')
+
+
+def group_weights_card(criteria):
+    if criteria is None or criteria.empty or not {"group", "group_label", "base_weight"}.issubset(criteria.columns):
+        return
+    rows = []
+    tones = {"credit": "aqua", "capital": "green", "profitability": "violet", "digital": "amber"}
+    criterion_weights = criteria[["criterion", "group", "group_label", "base_weight"]].drop_duplicates("criterion")
+    weights = (criterion_weights.groupby(["group", "group_label"], as_index=False, sort=False)["base_weight"]
+               .sum()
+               .assign(_order=lambda frame: frame["group"].map({group: index for index, group in enumerate(GROUP_ORDER)}))
+               .sort_values("_order"))
+    total = weights["base_weight"].sum()
+    for record in weights.to_dict("records"):
+        label = record.get("group_label")
+        tone = tones.get(record.get("group"), "blue")
+        percent = float(record["base_weight"])
+        rows.append(f'<div class="weight-row"><span class="weight-dot tone-{tone}"></span><span>{safe(label)}</span><strong>{safe(number(percent, 2))}%</strong></div>')
+    html(f'<div class="weight-card"><div class="weight-head"><span>{icon("bars", "blue")}</span><div><strong>Trọng số nhóm và chi tiết dữ liệu</strong><small>Phân bổ trọng số theo nhóm tiêu chí</small></div></div>'
+         f'<div class="weight-columns"><span>Nhóm chỉ tiêu</span><strong>Trọng số (%)</strong></div>{"".join(rows)}'
+         f'<div class="weight-note">{icon("bulb", "blue")} <span>Tổng trọng số các nhóm = {safe(number(total, 2))}%.</span></div></div>')
