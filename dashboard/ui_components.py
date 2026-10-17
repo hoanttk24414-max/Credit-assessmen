@@ -70,21 +70,41 @@ def safe(value):
     return escape(text(value), quote=True)
 
 
-@lru_cache(maxsize=32)
+BANK_LOGO_FILES = {
+    "VCB": "vcb.png", "TCB": "tcb.png", "CTG": "ctg.png",
+    "MBB": "mbb.png", "BID": "bid.png",
+}
+
+
+def get_bank_logo_path(ticker):
+    """Resolve presentation assets only; unknown tickers cannot become file paths."""
+    filename = BANK_LOGO_FILES.get(text(ticker).strip().upper())
+    if filename:
+        asset = Path(__file__).with_name("assets") / "logos" / filename
+        try:
+            if asset.is_file():
+                return asset
+        except OSError:
+            pass
+    return None
+
+
+@lru_cache(maxsize=8)
 def _bank_logo_data(ticker):
-    """Resolve optional local bank logos without making them a data dependency."""
-    if not ticker:
-        return None
-    asset_dir = Path(__file__).with_name("assets") / "bank_logos"
-    for extension, mime in (("png", "image/png"), ("jpg", "image/jpeg"), ("svg", "image/svg+xml")):
-        asset = asset_dir / f"{str(ticker).lower()}.{extension}"
-        if asset.exists():
-            return f"data:{mime};base64," + b64encode(asset.read_bytes()).decode("ascii")
+    """Cache the five prepared PNGs; the combined source sheet is never read here."""
+    asset = get_bank_logo_path(ticker)
+    if asset:
+        try:
+            return "data:image/png;base64," + b64encode(asset.read_bytes()).decode("ascii")
+        except OSError:
+            pass
     return None
 
 
 def bank_logo(ticker, *, size="normal"):
-    ticker = text(ticker)
+    ticker = text(ticker).strip().upper()
+    size = {"small": "sm", "normal": "md", "large": "lg"}.get(size, size)
+    size = size if size in ("sm", "md", "lg") else "md"
     source = _bank_logo_data(ticker)
     if source:
         return f'<img class="bank-logo bank-logo-{safe(size)}" src="{source}" alt="{safe(ticker)}" />'
@@ -92,6 +112,49 @@ def bank_logo(ticker, *, size="normal"):
     initials = safe(ticker[:2])
     return (f'<span class="bank-logo-fallback bank-logo-{safe(size)}" style="--bank:{color}" '
             f'aria-label="{safe(ticker)}">{initials}</span>')
+
+
+def bank_identity_strip(tickers, *, compact=False, label="Nhận diện ngân hàng"):
+    """Pair local emblems with visible tickers without touching Plotly's axes."""
+    tickers = list(tickers)
+    variant = " bank-identity-strip-compact" if compact else ""
+    identities = "".join(
+        f'<span class="bank-identity" style="--bank:{BANK_COLORS.get(ticker, "#345da3")}">'
+        f'{bank_logo(ticker, size="sm")}<span>{safe(ticker)}</span></span>'
+        for ticker in tickers
+    )
+    html(f'<div class="bank-identity-strip{variant}" role="group" aria-label="{safe(label)}" '
+         f'style="--count:{len(tickers)}">{identities}</div>')
+
+
+def bank_selector_logo_css():
+    """Decorate real native tags through their accessible ticker labels; no JS."""
+    rules = []
+    for ticker in BANK_LOGO_FILES:
+        source = _bank_logo_data(ticker)
+        if source:
+            rules.append(
+                '.st-key-comparison_page .st-key-panel_comparison_filter '
+                f'[data-testid="stMultiSelectTagsContainer"] [data-tag][aria-label="{ticker}"]::before '
+                '{content:"";display:inline-block;flex:0 0 22px;width:22px;height:22px;'
+                f'background:url("{source}") center/contain no-repeat;}}'
+            )
+    return "\n".join(rules)
+
+
+def bank_logo_axis(tickers, *, height, top, bottom):
+    """Align cached logos with a score chart's equally spaced bar slots."""
+    tickers = list(tickers)
+    if not tickers:
+        return
+    rows = "".join(
+        f'<span class="bank-logo-axis-row" data-ticker="{safe(ticker)}" title="{safe(ticker)}">'
+        f'{bank_logo(ticker, size="sm")}</span>'
+        for ticker in tickers
+    )
+    html('<div class="bank-logo-axis" role="group" aria-label="Logo ngân hàng theo thứ tự thanh điểm" '
+         f'style="--count:{len(tickers)};--axis-height:{int(height)}px;'
+         f'--axis-top:{int(top)}px;--axis-bottom:{int(bottom)}px">{rows}</div>')
 
 
 def _group_icon(group_label):
@@ -281,7 +344,7 @@ def ranking_table(ranking):
         medal = {1: "gold", 2: "silver", 3: "bronze"}.get(record["rank"], "plain")
         leader_class = ' class="ranking-leader"' if record["rank"] == ranking["rank"].min() else ""
         rows.append(f'<tr{leader_class}><td><span class="rank-number {medal}">{safe(number(record["rank"], 0))}</span></td>'
-                    f'<td><span class="bank-dot" style="--bank:{BANK_COLORS.get(ticker, "#345da3")}"></span><strong>{safe(record["bank"])}</strong></td>'
+                    f'<td><span class="ranking-bank-identity">{bank_logo(ticker, size="sm")}<strong>{safe(record["bank"])}</strong></span></td>'
                     f'<td><span class="ticker" style="--bank:{BANK_COLORS.get(ticker, "#366b9c")}">{safe(ticker)}</span></td>'
                     f'<td class="numeric"><strong>{safe(number(record["total_score"]))}</strong></td></tr>')
     html('<div class="ranking-wrap"><table class="ranking-table"><thead><tr><th>Hạng</th><th>Ngân hàng</th>'
@@ -303,6 +366,7 @@ def insight_cards(groups):
     cards = []
     for index, (_, part) in enumerate(groups.groupby("group", sort=False)):
         available = part.dropna(subset=["group_score_100"])
+        leader_logos = ""
         if available.empty:
             names, score = "N/A", "N/A"
         else:
@@ -310,9 +374,9 @@ def insight_cards(groups):
             leaders = available.loc[available.group_score_100.eq(best)]
             names = " · ".join(leaders.ticker)
             score = number(best)
+            leader_logos = "".join(bank_logo(ticker, size="sm") for ticker in leaders.ticker)
         label = part.group_label.iloc[0]
-        symbol = ("shield", "coins", "bars", "screen")[index % 4]
-        cards.append(f'<article class="insight tone-{index}">{icon(symbol, ("teal", "gold", "violet", "blue")[index % 4])}'
+        cards.append(f'<article class="insight tone-{index}"><span class="insight-bank-logos">{leader_logos}</span>'
                      f'<div><strong>{safe(names)} <b>{safe(score)}</b><small> / 100</small></strong>'
                      f'<p>Dẫn đầu: {safe(label)}</p></div></article>')
     html('<div class="insight-grid">' + "".join(cards) + '</div>')
